@@ -60,4 +60,15 @@ export class SqsQueueDriver implements QueueDriver {
 
     return;
   }
+
+  async count(options: Record<string, any>): Promise<number> {
+    const params = {
+      QueueUrl: this.options.prefix + "/" + options.queue,
+      AttributeNames: ["ApproximateNumberOfMessages"],
+    };
+    const response: Record<string, any> = await this.client
+      .getQueueAttributes(params)
+      .promise();
+    return +response.Attributes.ApproximateNumberOfMessages;
+  }
 }
