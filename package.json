@@ -1,6 +1,6 @@
 {
   "name": "@squareboat/nest-queue-sqs",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "The AWS SQS queue package for your NestJS Applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -36,7 +36,7 @@
     "typescript": "^4.1.3"
   },
   "dependencies": {
-    "@squareboat/nest-queue-strategy": "0.0.5",
+    "@squareboat/nest-queue-strategy": "0.0.8",
     "aws-sdk": "^2.817.0"
   }
 }
