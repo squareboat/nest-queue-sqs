@@ -8,11 +8,17 @@ export class SqsQueueDriver implements QueueDriver {
 
   constructor(private options: Record<string, any>) {
     AWS.config.update({ region: options.region });
-    const credential = new AWS.SharedIniFileCredentials({
-      profile: options.profile,
+
+    if (options.profile) {
+      options["credentials"] = new AWS.SharedIniFileCredentials({
+        profile: options.profile,
+      });
+    }
+
+    this.client = new AWS.SQS({
+      apiVersion: options.apiVersion,
+      credentials: options.credentials,
     });
-    AWS.config.credentials = credential;
-    this.client = new AWS.SQS({ apiVersion: options.apiVersion });
     this.queueUrl = options.prefix + "/" + options.queue;
   }
 
