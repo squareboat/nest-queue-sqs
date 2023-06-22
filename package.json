@@ -1,6 +1,6 @@
 {
   "name": "@squareboat/nest-queue-sqs",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "The AWS SQS queue package for your NestJS Applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

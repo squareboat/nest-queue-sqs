@@ -1,6 +1,7 @@
 import { QueueDriver, InternalMessage } from "@squareboat/nest-queue-strategy";
 import AWS = require("aws-sdk");
 import { SqsJob } from "./job";
+import { Credentials } from "aws-sdk";
 
 export class SqsQueueDriver implements QueueDriver {
   private client: AWS.SQS;
@@ -12,6 +13,11 @@ export class SqsQueueDriver implements QueueDriver {
     if (options.profile) {
       options["credentials"] = new AWS.SharedIniFileCredentials({
         profile: options.profile,
+      });
+    } else if (options.accessKey && options.secretKey) {
+      options["credentials"] = new Credentials({
+        accessKeyId: options.accessKey,
+        secretAccessKey: options.secretKey,
       });
     }
 
