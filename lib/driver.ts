@@ -45,7 +45,7 @@ export class SqsQueueDriver implements QueueDriver {
       MessageAttributeNames: ["All"],
       QueueUrl: this.options.prefix + "/" + options.queue,
       VisibilityTimeout: 30,
-      WaitTimeSeconds: 0,
+      WaitTimeSeconds: 20,
     };
     const response = await this.client.receiveMessage(params).promise();
     const message = response.Messages ? response.Messages[0] : null;
