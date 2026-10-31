@@ -48,6 +48,16 @@ export class AppModule {}
 | `accessKey`, `secretKey` | Access key credentials |
 | `profile` | Profile from `~/.aws/credentials`, used instead of access keys |
 | `endpoint` | Custom endpoint, e.g. LocalStack or ElasticMQ. Usually not needed: hosts outside AWS in `prefix` are used as the endpoint. |
+| `messageGroupId` | FIFO queues: `MessageGroupId` of every message, or a function of the message that returns it. Default `"default"`. |
+| `messageDeduplicationId` | FIFO queues: `"random"` (default, a random id per message), `"content"` (none, for queues with content-based deduplication) or a function of the message that returns the id. |
+
+### FIFO queues
+
+For queue URLs ending in `.fifo`, every message is sent with:
+
+- a `MessageGroupId`: the `messageGroupId` option, `"default"` if not set. With one group, the queue is processed in order, one message at a time. To process groups in parallel, return a group per message, e.g. `messageGroupId: (message: InternalMessage) => message.job` (`InternalMessage` comes from `@squareboat/nest-queue`).
+- a `MessageDeduplicationId`: a random id, so every dispatched job is delivered, also when the same job is dispatched twice within SQS's 5 minute deduplication window. Set `messageDeduplicationId: "content"` if the queue has content-based deduplication and you want SQS to drop identical messages.
+- no `DelaySeconds`: SQS rejects a per-message delay on FIFO queues, so the job's `delay` (nest-queue's default is 10 seconds) is ignored and a warning is logged once. Set `DelaySeconds` on the queue itself instead, and dispatch with `delay: 0` to drop the warning.
 
 If you get `NonExistentQueue` / `QueueDoesNotExist`, compare the queue URL in the SQS console with `prefix` + `/` + `queue` + `suffix`, and check that `region` matches it.
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { QueueDriver, InternalMessage } from "@squareboat/nest-queue-strategy";
 import {
   DeleteMessageCommand,
@@ -5,11 +6,54 @@ import {
   PurgeQueueCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
+  SendMessageCommandInput,
   SQSClient,
   SQSClientConfig,
 } from "@aws-sdk/client-sqs";
 import { fromIni } from "@aws-sdk/credential-providers";
 import { SqsJob } from "./job";
+
+/** Options of a `connections.<name>` entry that uses `SqsQueueDriver`. */
+export interface SqsQueueDriverOptions {
+  /**
+   * Region for queue URLs whose host does not name one (ElasticMQ, LocalStack...).
+   * AWS queue URLs (`sqs.<region>.amazonaws.com`, VPC endpoints...) are signed with
+   * their own region. Default: `AWS_REGION`.
+   */
+  region?: string;
+  /** Queue URL without the queue name: `https://sqs.<region>.amazonaws.com/<account-id>`. */
+  prefix?: string;
+  /** Queue name, or a full queue URL (`prefix` and `suffix` are then not used). */
+  queue?: string;
+  /** Added to the queue name unless it already ends with it (before `.fifo`), e.g. `-staging`. */
+  suffix?: string;
+  /** Access key id, used with `secretKey`. Leave both empty to use the AWS default credential chain. */
+  accessKey?: string;
+  /** Secret access key, used with `accessKey`. */
+  secretKey?: string;
+  /** Profile from `~/.aws/credentials` / `~/.aws/config`. Used instead of the access keys. */
+  profile?: string;
+  /**
+   * Credentials (`{ accessKeyId, secretAccessKey, sessionToken }`) or a credential provider.
+   * Used when neither `profile` nor `accessKey`/`secretKey` is set.
+   */
+  credentials?: SQSClientConfig["credentials"];
+  /** Endpoint for every request. Usually not needed: requests go to the queue URL's host. */
+  endpoint?: string;
+  /**
+   * FIFO queues only: the `MessageGroupId`, or a function that returns it for a message.
+   * Messages of one group are delivered in order, one at a time. Default: `"default"`
+   * (one group, so the whole queue is processed in order).
+   */
+  messageGroupId?: string | ((message: InternalMessage) => string);
+  /**
+   * FIFO queues only: `"random"` (default) sends a random `MessageDeduplicationId` with
+   * every push; `"content"` sends none, for queues with content-based deduplication;
+   * or a function that returns the id for a message.
+   */
+  messageDeduplicationId?: "random" | "content" | ((message: InternalMessage) => string);
+  [key: string]: any;
+}
 
 /** Hosts that name their region, like SDK v2 read it from `sqs.<region>.`. */
 const REGION_HOSTS = [
@@ -60,8 +104,15 @@ export function buildQueueUrl(prefix: string | undefined, queue: string, suffix 
 export class SqsQueueDriver implements QueueDriver {
   private clients = new Map<string, SQSClient>();
   private credentials: SQSClientConfig["credentials"];
+  private fifoDelayWarned = false;
 
-  constructor(private options: Record<string, any>) {
+  constructor(private options: SqsQueueDriverOptions) {
+    const dedup = options.messageDeduplicationId;
+    if (dedup !== undefined && typeof dedup !== "function" && dedup !== "random" && dedup !== "content") {
+      throw new Error(
+        `@squareboat/nest-queue-sqs: messageDeduplicationId must be "random", "content" or a function, got ${JSON.stringify(dedup)}`
+      );
+    }
     if (options.profile) {
       this.credentials = fromIni({ profile: options.profile });
     } else if (options.accessKey && options.secretKey) {
@@ -76,7 +127,7 @@ export class SqsQueueDriver implements QueueDriver {
   }
 
   private urlFor(queue: string | undefined): string {
-    return buildQueueUrl(this.options.prefix, queue || this.options.queue, this.options.suffix);
+    return buildQueueUrl(this.options.prefix, queue || this.options.queue || "", this.options.suffix);
   }
 
   /**
@@ -99,9 +150,33 @@ export class SqsQueueDriver implements QueueDriver {
 
   async push(message: string, rawPayload: InternalMessage): Promise<void> {
     const QueueUrl = this.urlFor(rawPayload.queue);
-    await this.clientFor(QueueUrl).send(
-      new SendMessageCommand({ DelaySeconds: rawPayload.delay, MessageBody: message, QueueUrl })
-    );
+    const input: SendMessageCommandInput = { MessageBody: message, QueueUrl };
+    if (QueueUrl.endsWith(".fifo")) {
+      Object.assign(input, this.fifoParams(rawPayload));
+    } else {
+      input.DelaySeconds = rawPayload.delay;
+    }
+    await this.clientFor(QueueUrl).send(new SendMessageCommand(input));
+  }
+
+  /**
+   * FIFO queues need a MessageGroupId and (without content-based deduplication) a
+   * MessageDeduplicationId, and reject a per-message DelaySeconds.
+   */
+  private fifoParams(message: InternalMessage): Partial<SendMessageCommandInput> {
+    const { messageGroupId = "default", messageDeduplicationId: dedup = "random" } = this.options;
+    if (message.delay && !this.fifoDelayWarned) {
+      this.fifoDelayWarned = true;
+      console.warn(
+        `@squareboat/nest-queue-sqs: FIFO queues do not support a per-message delay, so "delay" ` +
+          `(nest-queue's default is 10 s) is ignored. Set DelaySeconds on the queue instead.`
+      );
+    }
+    return {
+      MessageGroupId: typeof messageGroupId === "function" ? messageGroupId(message) : messageGroupId,
+      MessageDeduplicationId:
+        typeof dedup === "function" ? dedup(message) : dedup === "content" ? undefined : randomUUID(),
+    };
   }
 
   async pull(options: Record<string, any>): Promise<SqsJob | null> {
