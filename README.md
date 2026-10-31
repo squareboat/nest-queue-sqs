@@ -48,6 +48,7 @@ export class AppModule {}
 | `accessKey`, `secretKey` | Access key credentials |
 | `profile` | Profile from `~/.aws/credentials`, used instead of access keys |
 | `endpoint` | Custom endpoint, e.g. LocalStack or ElasticMQ. Usually not needed: hosts outside AWS in `prefix` are used as the endpoint. |
+| `clientConfig` | Optional extra [`SQSClient` options](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/sqs/), e.g. `{ maxAttempts: 5 }`. A `requestHandler` options object is merged with the default `{ requestTimeout: 30_000, throwOnRequestTimeout: true }`. |
 | `messageGroupId` | FIFO queues: `MessageGroupId` of every message, or a function of the message that returns it. Default `"default"`. |
 | `messageDeduplicationId` | FIFO queues: `"random"` (default, a random id per message), `"content"` (none, for queues with content-based deduplication) or a function of the message that returns the id. |
 

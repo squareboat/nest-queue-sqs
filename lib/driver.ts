@@ -41,6 +41,12 @@ export interface SqsQueueDriverOptions {
   /** Endpoint for every request. Usually not needed: requests go to the queue URL's host. */
   endpoint?: string;
   /**
+   * Extra `SQSClient` options (`maxAttempts`, `logger`, `requestHandler`...), spread over
+   * the ones the driver sets. A `requestHandler` options object is merged with the
+   * default `{ requestTimeout: 30_000, throwOnRequestTimeout: true }`.
+   */
+  clientConfig?: SQSClientConfig;
+  /**
    * FIFO queues only: the `MessageGroupId`, or a function that returns it for a message.
    * Messages of one group are delivered in order, one at a time. Default: `"default"`
    * (one group, so the whole queue is processed in order).
@@ -61,6 +67,13 @@ const REGION_HOSTS = [
   /^([a-z0-9-]+)\.queue\.amazonaws\.com(?:\.cn)?$/, // legacy <region>.queue.amazonaws.com
   /\.sqs\.([a-z0-9-]+)\.vpce\.amazonaws\.com(?:\.cn)?$/, // VPC endpoints
 ];
+
+/**
+ * SDK v3 has no request timeout by default, so a stalled connection hung pull()
+ * forever (v2 had a 120 s socket timeout). 30 s is above ReceiveMessage's 20 s
+ * long poll; without throwOnRequestTimeout the SDK only logs a warning.
+ */
+const DEFAULT_REQUEST_HANDLER = { requestTimeout: 30_000, throwOnRequestTimeout: true };
 
 /** The host SDK v3 resolves for a region; any other host must be passed as `endpoint`. */
 const STANDARD_HOST = /^sqs\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/;
@@ -142,7 +155,17 @@ export class SqsQueueDriver implements QueueDriver {
     const key = `${region}|${endpoint}`;
     let client = this.clients.get(key);
     if (!client) {
-      client = new SQSClient({ region, credentials: this.credentials, endpoint });
+      const { requestHandler, ...clientConfig } = this.options.clientConfig ?? {};
+      client = new SQSClient({
+        region,
+        credentials: this.credentials,
+        endpoint,
+        ...clientConfig,
+        requestHandler:
+          typeof (requestHandler as { handle?: unknown } | undefined)?.handle === "function"
+            ? requestHandler // a handler instance
+            : { ...DEFAULT_REQUEST_HANDLER, ...(requestHandler as object | undefined) },
+      });
       this.clients.set(key, client);
     }
     return client;
