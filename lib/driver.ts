@@ -18,35 +18,30 @@ const REGION_HOSTS = [
   /\.sqs\.([a-z0-9-]+)\.vpce\.amazonaws\.com(?:\.cn)?$/, // VPC endpoints
 ];
 
-/** Region named by the queue URL's host, if any. */
-function regionFromUrl(queueUrl: string): string | undefined {
-  let host: string;
-  try {
-    host = new URL(queueUrl).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-  if (host === "queue.amazonaws.com") return "us-east-1"; // legacy us-east-1 host
-  for (const re of REGION_HOSTS) {
-    const match = re.exec(host);
-    if (match) return match[1];
-  }
-  return undefined;
-}
+/** The host SDK v3 resolves for a region; any other host must be passed as `endpoint`. */
+const STANDARD_HOST = /^sqs\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/;
 
 /**
- * Requests always go to the queue URL's host. For hosts outside AWS
- * (ElasticMQ, LocalStack...) pass that host as the endpoint too, otherwise
- * SDK v3 logs a mismatch warning on every call.
+ * Signing region and endpoint for a queue URL. Requests always go to the queue
+ * URL's host; for hosts other than sqs.<region>.amazonaws.com (VPC endpoints,
+ * FIPS, legacy hosts, ElasticMQ, LocalStack...) that host is also passed as
+ * the endpoint, otherwise SDK v3 logs a mismatch warning on every call.
  */
-function localEndpoint(prefix: unknown): string | undefined {
-  if (typeof prefix !== "string") return undefined;
+function targetFor(queueUrl: string): { region?: string; endpoint?: string } {
+  let url: URL;
   try {
-    const url = new URL(prefix);
-    return /\.amazonaws\.com(\.cn)?$/i.test(url.hostname) ? undefined : url.origin;
+    url = new URL(queueUrl);
   } catch {
-    return undefined;
+    return {};
   }
+  const host = url.hostname.toLowerCase();
+  const endpoint = STANDARD_HOST.test(host) ? undefined : url.origin;
+  if (host === "queue.amazonaws.com") return { region: "us-east-1", endpoint }; // legacy us-east-1 host
+  for (const re of REGION_HOSTS) {
+    const match = re.exec(host);
+    if (match) return { region: match[1], endpoint };
+  }
+  return { endpoint };
 }
 
 /**
@@ -65,7 +60,6 @@ export function buildQueueUrl(prefix: string | undefined, queue: string, suffix 
 
 export class SqsQueueDriver implements QueueDriver {
   private clients = new Map<string, SQSClient>();
-  private queueUrl: string;
   private credentials: SQSClientConfig["credentials"];
 
   constructor(private options: Record<string, any>) {
@@ -80,9 +74,6 @@ export class SqsQueueDriver implements QueueDriver {
       // undefined: the SDK's default chain is used (env, ~/.aws, IAM role)
       this.credentials = options.credentials;
     }
-
-    this.queueUrl = this.urlFor(options.queue);
-    this.clientFor(this.queueUrl);
   }
 
   private urlFor(queue: string | undefined): string {
@@ -95,8 +86,9 @@ export class SqsQueueDriver implements QueueDriver {
    * else with `region` / AWS_REGION.
    */
   private clientFor(queueUrl: string): SQSClient {
-    const region = regionFromUrl(queueUrl) ?? this.options.region;
-    const endpoint = this.options.endpoint || localEndpoint(this.options.prefix || this.queueUrl);
+    const target = targetFor(queueUrl);
+    const region = target.region ?? this.options.region;
+    const endpoint = this.options.endpoint || target.endpoint;
     const key = `${region}|${endpoint}`;
     let client = this.clients.get(key);
     if (!client) {
