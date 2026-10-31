@@ -4,6 +4,9 @@
   "description": "The AWS SQS queue package for your NestJS Applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "nestjs",
     "nestjs-queue",
