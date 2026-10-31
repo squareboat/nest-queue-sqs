@@ -43,8 +43,8 @@ export class AppModule {}
 |---|---|
 | `region` | Region of the queue. It must match the region in `prefix`. |
 | `prefix` | Queue URL without the queue name: `https://sqs.<region>.amazonaws.com/<account-id>` |
-| `queue` | Queue name. A full queue URL also works. |
-| `suffix` | Optional, added to the queue name (before `.fifo` for FIFO queues), e.g. `-staging` |
+| `queue` | Queue name. A full queue URL also works (`prefix` and `suffix` are then not used). |
+| `suffix` | Optional, added to the queue name unless it already ends with it (before `.fifo` for FIFO queues), e.g. `-staging`: `orders.fifo` becomes `orders-staging.fifo` |
 | `accessKey`, `secretKey` | Access key credentials |
 | `profile` | Profile from `~/.aws/credentials`, used instead of access keys |
 | `endpoint` | Custom endpoint, e.g. LocalStack or ElasticMQ. Usually not needed: hosts outside AWS in `prefix` are used as the endpoint. |

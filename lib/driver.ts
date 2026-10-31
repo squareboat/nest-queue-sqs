@@ -45,17 +45,16 @@ function targetFor(queueUrl: string): { region?: string; endpoint?: string } {
 }
 
 /**
- * Full queue URL from the connection options. `queue` may also be a full URL.
- * `suffix` (documented, but ignored before 0.1.0) is added to the queue name,
- * before `.fifo` for FIFO queues.
+ * Full queue URL from the connection options. `queue` may also be a full URL
+ * (then `suffix` is not applied). `suffix` is added to the queue name unless
+ * the name already ends with it, before `.fifo` for FIFO queues.
  */
 export function buildQueueUrl(prefix: string | undefined, queue: string, suffix = ""): string {
   if (/^https?:\/\//i.test(queue)) return queue;
-  let name = queue;
-  if (suffix && !name.endsWith(suffix)) {
-    name = name.endsWith(".fifo") ? name.slice(0, -".fifo".length) + suffix + ".fifo" : name + suffix;
-  }
-  return `${String(prefix ?? "").replace(/\/+$/, "")}/${name}`;
+  const fifo = queue.endsWith(".fifo");
+  let name = fifo ? queue.slice(0, -".fifo".length) : queue;
+  if (suffix && !name.endsWith(suffix)) name += suffix;
+  return `${String(prefix ?? "").replace(/\/+$/, "")}/${name}${fifo ? ".fifo" : ""}`;
 }
 
 export class SqsQueueDriver implements QueueDriver {
