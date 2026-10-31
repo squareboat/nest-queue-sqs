@@ -17,7 +17,7 @@
   "bugs": {
     "url": "https://github.com/squareboat/nest-queue-sqs/issues"
   },
-  "homepage": "https://squareboat.com/open-source/nest-queue-sqs/",
+  "homepage": "https://github.com/squareboat/nest-queue-sqs#readme",
   "author": "Squareboat <hi@squareboat.com>",
   "private": false,
   "license": "MIT",

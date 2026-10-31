@@ -25,6 +25,20 @@ function localEndpoint(prefix: unknown): string | undefined {
   }
 }
 
+/**
+ * Full queue URL from the connection options. `queue` may also be a full URL.
+ * `suffix` (documented, but ignored before 0.1.0) is added to the queue name,
+ * before `.fifo` for FIFO queues.
+ */
+export function buildQueueUrl(prefix: string | undefined, queue: string, suffix = ""): string {
+  if (/^https?:\/\//i.test(queue)) return queue;
+  let name = queue;
+  if (suffix && !name.endsWith(suffix)) {
+    name = name.endsWith(".fifo") ? name.slice(0, -".fifo".length) + suffix + ".fifo" : name + suffix;
+  }
+  return `${String(prefix ?? "").replace(/\/+$/, "")}/${name}`;
+}
+
 export class SqsQueueDriver implements QueueDriver {
   private client: SQSClient;
   private queueUrl: string;
@@ -39,20 +53,24 @@ export class SqsQueueDriver implements QueueDriver {
       };
     }
 
+    this.queueUrl = this.urlFor(options.queue);
     // no credentials given: the SDK's default chain is used (env, ~/.aws, IAM role)
     this.client = new SQSClient({
       region: options.region,
       credentials: options.credentials,
-      endpoint: options.endpoint || localEndpoint(options.prefix),
+      endpoint: options.endpoint || localEndpoint(options.prefix || this.queueUrl),
     });
-    this.queueUrl = options.prefix + "/" + options.queue;
+  }
+
+  private urlFor(queue: string | undefined): string {
+    return buildQueueUrl(this.options.prefix, queue || this.options.queue, this.options.suffix);
   }
 
   async push(message: string, rawPayload: InternalMessage): Promise<void> {
     const params = {
       DelaySeconds: rawPayload.delay,
       MessageBody: message,
-      QueueUrl: this.options.prefix + "/" + rawPayload.queue,
+      QueueUrl: this.urlFor(rawPayload.queue),
     };
 
     await this.client.send(new SendMessageCommand(params));
@@ -63,7 +81,7 @@ export class SqsQueueDriver implements QueueDriver {
     const params = {
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ["All"],
-      QueueUrl: this.options.prefix + "/" + options.queue,
+      QueueUrl: this.urlFor(options.queue),
       VisibilityTimeout: 30,
       WaitTimeSeconds: 20,
     };
@@ -74,7 +92,7 @@ export class SqsQueueDriver implements QueueDriver {
 
   async remove(job: SqsJob, options: Record<string, any>): Promise<void> {
     const params = {
-      QueueUrl: this.options.prefix + "/" + options.queue,
+      QueueUrl: this.urlFor(options.queue),
       ReceiptHandle: job.data.ReceiptHandle,
     };
 
@@ -85,7 +103,7 @@ export class SqsQueueDriver implements QueueDriver {
 
   async purge(options: Record<string, any>): Promise<void> {
     const params = {
-      QueueUrl: this.options.prefix + "/" + options.queue,
+      QueueUrl: this.urlFor(options.queue),
     };
 
     await this.client.send(new PurgeQueueCommand(params));
@@ -95,7 +113,7 @@ export class SqsQueueDriver implements QueueDriver {
 
   async count(options: Record<string, any>): Promise<number> {
     const params = {
-      QueueUrl: this.options.prefix + "/" + options.queue,
+      QueueUrl: this.urlFor(options.queue),
       AttributeNames: ["ApproximateNumberOfMessages" as const],
     };
     const response: Record<string, any> = await this.client.send(
