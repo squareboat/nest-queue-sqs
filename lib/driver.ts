@@ -1,29 +1,49 @@
 import { QueueDriver, InternalMessage } from "@squareboat/nest-queue-strategy";
-import AWS = require("aws-sdk");
+import {
+  DeleteMessageCommand,
+  GetQueueAttributesCommand,
+  PurgeQueueCommand,
+  ReceiveMessageCommand,
+  SendMessageCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
+import { fromIni } from "@aws-sdk/credential-providers";
 import { SqsJob } from "./job";
-import { Credentials } from "aws-sdk";
+
+/**
+ * Requests always go to the queue URL's host. For hosts outside AWS
+ * (ElasticMQ, LocalStack...) pass that host as the endpoint too, otherwise
+ * SDK v3 logs a mismatch warning on every call.
+ */
+function localEndpoint(prefix: unknown): string | undefined {
+  if (typeof prefix !== "string") return undefined;
+  try {
+    const url = new URL(prefix);
+    return /\.amazonaws\.com(\.cn)?$/i.test(url.hostname) ? undefined : url.origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export class SqsQueueDriver implements QueueDriver {
-  private client: AWS.SQS;
+  private client: SQSClient;
   private queueUrl: string;
 
   constructor(private options: Record<string, any>) {
-    AWS.config.update({ region: options.region });
-
     if (options.profile) {
-      options["credentials"] = new AWS.SharedIniFileCredentials({
-        profile: options.profile,
-      });
+      options["credentials"] = fromIni({ profile: options.profile });
     } else if (options.accessKey && options.secretKey) {
-      options["credentials"] = new Credentials({
+      options["credentials"] = {
         accessKeyId: options.accessKey,
         secretAccessKey: options.secretKey,
-      });
+      };
     }
 
-    this.client = new AWS.SQS({
-      apiVersion: options.apiVersion,
+    // no credentials given: the SDK's default chain is used (env, ~/.aws, IAM role)
+    this.client = new SQSClient({
+      region: options.region,
       credentials: options.credentials,
+      endpoint: options.endpoint || localEndpoint(options.prefix),
     });
     this.queueUrl = options.prefix + "/" + options.queue;
   }
@@ -35,7 +55,7 @@ export class SqsQueueDriver implements QueueDriver {
       QueueUrl: this.options.prefix + "/" + rawPayload.queue,
     };
 
-    await this.client.sendMessage(params).promise().then();
+    await this.client.send(new SendMessageCommand(params));
     return;
   }
 
@@ -47,7 +67,7 @@ export class SqsQueueDriver implements QueueDriver {
       VisibilityTimeout: 30,
       WaitTimeSeconds: 20,
     };
-    const response = await this.client.receiveMessage(params).promise();
+    const response = await this.client.send(new ReceiveMessageCommand(params));
     const message = response.Messages ? response.Messages[0] : null;
     return message ? new SqsJob(message) : null;
   }
@@ -58,7 +78,7 @@ export class SqsQueueDriver implements QueueDriver {
       ReceiptHandle: job.data.ReceiptHandle,
     };
 
-    await this.client.deleteMessage(params).promise();
+    await this.client.send(new DeleteMessageCommand(params));
 
     return;
   }
@@ -68,7 +88,7 @@ export class SqsQueueDriver implements QueueDriver {
       QueueUrl: this.options.prefix + "/" + options.queue,
     };
 
-    await this.client.purgeQueue(params).promise();
+    await this.client.send(new PurgeQueueCommand(params));
 
     return;
   }
@@ -76,11 +96,11 @@ export class SqsQueueDriver implements QueueDriver {
   async count(options: Record<string, any>): Promise<number> {
     const params = {
       QueueUrl: this.options.prefix + "/" + options.queue,
-      AttributeNames: ["ApproximateNumberOfMessages"],
+      AttributeNames: ["ApproximateNumberOfMessages" as const],
     };
-    const response: Record<string, any> = await this.client
-      .getQueueAttributes(params)
-      .promise();
+    const response: Record<string, any> = await this.client.send(
+      new GetQueueAttributesCommand(params)
+    );
     return +response.Attributes.ApproximateNumberOfMessages;
   }
 }
