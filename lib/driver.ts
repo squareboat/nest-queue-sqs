@@ -171,6 +171,15 @@ export class SqsQueueDriver implements QueueDriver {
     return client;
   }
 
+  /**
+   * Destroys the SDK clients, closing their keep-alive sockets. nest-queue calls it
+   * on application shutdown. Later calls open new clients.
+   */
+  async disconnect(): Promise<void> {
+    for (const client of this.clients.values()) client.destroy();
+    this.clients.clear();
+  }
+
   async push(message: string, rawPayload: InternalMessage): Promise<void> {
     const QueueUrl = this.urlFor(rawPayload.queue);
     const input: SendMessageCommandInput = { MessageBody: message, QueueUrl };
